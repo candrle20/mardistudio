@@ -1,0 +1,30 @@
+{
+  "watercolor-floral": {
+    "id": "watercolor-floral",
+    "name": "Watercolor Floral",
+    "artistName": "Maria Rodriguez",
+    "description": "Soft watercolor florals with romantic blush tones and organic brushwork.",
+    "promptModifier": "in a soft watercolor style with delicate pink roses, botanical elements, flowing brushstrokes, romantic pastel colors, hand-painted aesthetic, elegant and dreamy",
+    "negativePrompt": "digital art, photograph, harsh lines, neon colors, 3d render, cartoonish",
+    "thumbnailUrl": "https://via.placeholder.com/200x200"
+  },
+  "modern-minimalist": {
+    "id": "modern-minimalist",
+    "name": "Modern Minimalist",
+    "artistName": "Sarah Chen",
+    "description": "Clean geometric compositions with refined typography and gold foil accents.",
+    "promptModifier": "in a modern minimalist style with clean geometric shapes, metallic gold foil accents, calm neutral palette, crisp lines, high contrast, premium stationery aesthetic",
+    "negativePrompt": "floral, ornate, cluttered, vintage, busy, distressed textures",
+    "thumbnailUrl": "https://via.placeholder.com/200x200"
+  },
+  "botanical-illustration": {
+    "id": "botanical-illustration",
+    "name": "Botanical Illustration",
+    "artistName": "Emma Thompson",
+    "description": "Detailed botanical studies inspired by vintage scientific illustration.",
+    "promptModifier": "in a detailed botanical illustration style with eucalyptus leaves, fine ink line work, vintage scientific print, muted natural greens, textured paper background, precise shading",
+    "negativePrompt": "abstract, neon, low detail, geometric, cartoonish",
+    "thumbnailUrl": "https://via.placeholder.com/200x200"
+  }
+}
+
