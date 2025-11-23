@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import sharp from 'sharp';
 import { z } from 'zod';
+import { readFile } from 'fs/promises';
+import { join } from 'path';
 
 import { generateImage } from '@/lib/gemini/client';
 import { storeGeneratedImage } from '@/lib/storage';
@@ -41,6 +43,8 @@ const QUALITY_MULTIPLIER = {
 const GenerateSchema = z.object({
   prompt: z.string().min(5).max(2000),
   styleId: z.string().optional(),
+  inspirationUrl: z.string().optional(), // Relaxed: allows local paths
+  elementUrls: z.array(z.string()).optional(), // Relaxed: allows local paths
   aspectRatio: z.enum(['5x7', '4x6', 'square']).default('5x7'),
   quality: z.enum(['preview', 'proof', 'print']).default('proof'),
   templateType: TEMPLATE_TYPE_ENUM.optional(),
@@ -61,6 +65,52 @@ const GenerateSchema = z.object({
     .optional(),
 });
 
+async function fetchImageAsBase64(url: string): Promise<{ data: string; mimeType: string } | null> {
+  try {
+    // Handle data URLs directly
+    if (url.startsWith('data:')) {
+      const match = url.match(/^data:(.*?);base64,(.*)$/);
+      if (match) {
+        return { mimeType: match[1], data: match[2] };
+      }
+      return null;
+    }
+
+    // Handle local file uploads directly from disk
+    if (url.startsWith('/api/uploads/')) {
+      const filename = url.replace('/api/uploads/', '');
+      // Prevent directory traversal
+      const safeFilename = filename.replace(/^(\.\.[\/\\])+/, '');
+      const filepath = join(process.cwd(), 'uploads', safeFilename);
+      
+      const fileBuffer = await readFile(filepath);
+      // Simple mime type detection or default to png
+      const mimeType = filename.endsWith('.jpg') || filename.endsWith('.jpeg') 
+        ? 'image/jpeg' 
+        : 'image/png';
+        
+      return {
+        data: fileBuffer.toString('base64'),
+        mimeType,
+      };
+    }
+
+    // Handle external URLs
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const mimeType = response.headers.get('content-type') || 'image/png';
+    return {
+      data: buffer.toString('base64'),
+      mimeType,
+    };
+  } catch (error) {
+    console.error('Error fetching inspiration image:', error);
+    return null;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -77,31 +127,69 @@ export async function POST(request: Request) {
     const {
       prompt,
       styleId,
+      inspirationUrl,
+      elementUrls,
       aspectRatio,
       quality,
-      references,
+      references: existingReferences,
       templateSize,
       templateType,
       templateName,
     } = parsed.data;
+
+    // We still use enhancePromptWithStyle for basic wedding context if styleId is missing,
+    // or we can modify it to be more generic.
+    // For now, passing empty styleId gives generic wedding context.
     const { prompt: styledPrompt, negativePrompt } = enhancePromptWithStyle(prompt, styleId ?? '');
 
     const generationStart = Date.now();
 
+    // Process References - Split into Layout vs Elements
+    let layoutReference: { dataBase64: string; mimeType: string } | undefined = undefined;
+    const elementReferences: Array<{ dataBase64: string; mimeType: string }> = [];
+    const genericReferences: Array<{ dataBase64: string; mimeType: string }> = [];
+
+    // 1. Handle Inspiration URL -> Layout Reference
+    if (inspirationUrl) {
+      const ref = await fetchImageAsBase64(inspirationUrl);
+      if (ref) {
+        layoutReference = { dataBase64: ref.data, mimeType: ref.mimeType };
+      }
+    }
+
+    // 2. Handle Element URLs -> Element References
+    if (elementUrls && elementUrls.length > 0) {
+      const elementPromises = elementUrls.map(url => fetchImageAsBase64(url));
+      const elementRefs = await Promise.all(elementPromises);
+      
+      elementRefs.forEach(ref => {
+        if (ref) {
+          elementReferences.push({ dataBase64: ref.data, mimeType: ref.mimeType });
+        }
+      });
+    }
+
+    // 3. Handle generic user-uploaded references (Legacy)
+    if (existingReferences) {
+      existingReferences.forEach(ref => {
+        genericReferences.push({ dataBase64: ref.data, mimeType: ref.mimeType });
+      });
+    }
+
     const { imageData, mimeType } = await generateImage({
       prompt: styledPrompt,
       negativePrompt,
-      aspectRatio: aspectRatioMap[aspectRatio],
-      references: references?.map((ref) => ({
-        dataBase64: ref.data,
-        mimeType: ref.mimeType,
-      })),
+      aspectRatio: aspectRatioMap[aspectRatio] as any,
+      // Pass structured inputs
+      layoutReference,
+      elementReferences,
+      references: genericReferences, // Pass generic/legacy refs separately
     });
 
     const baseBuffer = Buffer.from(imageData, 'base64');
     const qualityConfig = QUALITY_CONFIG[quality];
 
-    let targetWidth = qualityConfig.targetWidth;
+    let targetWidth: number = qualityConfig.targetWidth;
     let targetHeight: number | undefined;
 
     if (templateSize) {

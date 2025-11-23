@@ -4,7 +4,12 @@ export interface GenerateImageOptions {
   prompt: string;
   aspectRatio?: AspectRatio;
   negativePrompt?: string;
+  // Old flat list support for backward compatibility or generic generation
   references?: Array<{ mimeType: string; dataBase64: string }>;
+  // New structured inputs
+  layoutReference?: { mimeType: string; dataBase64: string };
+  elementReferences?: Array<{ mimeType: string; dataBase64: string }>;
+
   baseImageBase64?: string;
   baseImageMimeType?: string;
   maskBase64?: string;
@@ -20,7 +25,7 @@ export interface GeminiImageResult {
   mimeType: string;
 }
 
-const MODEL_NAME = 'gemini-2.0-flash-preview-image-generation';
+const MODEL_NAME = 'nano-banana-pro-preview';
 const API_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 function getApiKey(): string {
@@ -34,8 +39,43 @@ function getApiKey(): string {
 function buildPartsFromOptions(options: GenerateImageOptions | EditImageOptions) {
   const parts: Array<{ text?: string; inlineData?: { data: string; mimeType: string } }> = [];
 
-  // Add reference images first
-  if ('references' in options && Array.isArray(options.references)) {
+  // 1. SYSTEM / PERSONA CONTEXT
+  parts.push({
+    text: `You are Nano Banana, an expert wedding stationery designer. Your goal is to design high-end, print-ready stationery (invitations, menus, save-the-dates) by synthesizing a Layout Reference with specific Decorative Elements.`
+  });
+
+  // 2. LAYOUT REFERENCE (The "Inspiration")
+  if (options.layoutReference) {
+    parts.push({
+      text: `LAYOU & STYLE REFERENCE: Use the following image to define the overall composition, border structure, color palette, and artistic vibe (e.g., watercolor, foil, minimal). Mimic its layout structure.`
+    });
+    parts.push({
+      inlineData: {
+        data: options.layoutReference.dataBase64,
+        mimeType: options.layoutReference.mimeType,
+      },
+    });
+  }
+
+  // 3. ELEMENT REFERENCES (The "Ingredients")
+  if (options.elementReferences && options.elementReferences.length > 0) {
+    parts.push({
+      text: `DECORATIVE ELEMENTS: You MUST incorporate the following specific design elements into the layout defined above. Do not just paste them; blend them artistically into the border/frame design. Match the style of the Layout Reference.`
+    });
+    
+    for (const element of options.elementReferences) {
+      parts.push({
+        inlineData: {
+          data: element.dataBase64,
+          mimeType: element.mimeType,
+        },
+      });
+    }
+  }
+
+  // 4. LEGACY / GENERIC REFERENCES (Fallback)
+  if (options.references && options.references.length > 0) {
+    parts.push({ text: `ADDITIONAL VISUAL REFERENCES:` });
     for (const reference of options.references) {
       parts.push({
         inlineData: {
@@ -46,8 +86,9 @@ function buildPartsFromOptions(options: GenerateImageOptions | EditImageOptions)
     }
   }
 
-  // Add base image for editing
+  // 5. EDITING INPUTS (Base Image + Mask)
   if ('baseImageBase64' in options && options.baseImageBase64) {
+    parts.push({ text: `BASE IMAGE FOR EDITING:` });
     parts.push({
       inlineData: {
         data: options.baseImageBase64,
@@ -56,8 +97,8 @@ function buildPartsFromOptions(options: GenerateImageOptions | EditImageOptions)
     });
   }
 
-  // Add mask for inpainting
   if ('maskBase64' in options && options.maskBase64) {
+    parts.push({ text: `MASK (Edit only white areas):` });
     parts.push({
       inlineData: {
         data: options.maskBase64,
@@ -66,15 +107,15 @@ function buildPartsFromOptions(options: GenerateImageOptions | EditImageOptions)
     });
   }
 
-  // Add text prompt with negative prompt
-  const defaultNegativePrompt = 'text, typography, letters, words, blurry, low quality, watermark';
+  // 6. FINAL PROMPT & NEGATIVE PROMPT
+  const defaultNegativePrompt = 'text, typography, letters, words, blurry, low quality, watermark, distorted, ugly, pixelated';
   const negativePrompt =
     'negativePrompt' in options && options.negativePrompt
       ? `${options.negativePrompt}, ${defaultNegativePrompt}`
       : defaultNegativePrompt;
 
   parts.push({
-    text: `${options.prompt}\nAvoid: ${negativePrompt}`,
+    text: `DESIGN INSTRUCTIONS:\n${options.prompt}\n\nIMPORTANT: Keep the center of the design BLANK white or very light color for text placement. Do not generate text.\n\nAvoid: ${negativePrompt}`,
   });
 
   return parts;
@@ -155,4 +196,3 @@ export async function editImage(options: EditImageOptions): Promise<GeminiImageR
 
   return generateImage(options);
 }
-

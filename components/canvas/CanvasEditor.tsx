@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { fabric } from 'fabric';
 import { useCanvasStore } from '@/stores/canvas-store';
+import { useTabStore } from '@/stores/tab-store';
 import { useTextEditing } from '@/lib/hooks/useTextEditing';
 import { useKeyboardShortcuts } from '@/lib/hooks/useKeyboardShortcuts';
 import { initializeSnapping } from '@/lib/canvas/snapping';
@@ -45,8 +46,7 @@ export function CanvasEditor({ projectId, initialCanvas, onSave, readOnly = fals
   }, [onSave]);
   
   // Get canvas size from active tab
-  const { useTabStore: tabStore } = require('@/stores/tab-store');
-  const getActiveTab = tabStore((state: any) => state.getActiveTab);
+  const getActiveTab = useTabStore((state) => state.getActiveTab);
   const activeTab = getActiveTab();
   const canvasWidth = activeTab?.width || 1500;
   const canvasHeight = activeTab?.height || 2100;
@@ -403,8 +403,8 @@ export function CanvasEditor({ projectId, initialCanvas, onSave, readOnly = fals
   useEffect(() => {
     if (!canvas) return;
 
-    const handlePathCreated = (event: fabric.IEvent<fabric.Path>) => {
-      const path = event.path;
+    const handlePathCreated = (event: any) => {
+      const path = event.path as fabric.Path;
       if (!path) return;
 
       if (maskMode) {
@@ -589,7 +589,14 @@ export function CanvasEditor({ projectId, initialCanvas, onSave, readOnly = fals
   const { panX, panY } = useCanvasStore();
   
   return (
-    <div ref={containerRef} className="absolute inset-0 overflow-hidden bg-gray-300">
+    <div 
+      ref={containerRef} 
+      className="absolute inset-0 overflow-hidden bg-gray-300"
+      style={{
+        overscrollBehavior: 'none',
+        touchAction: 'none'
+      }}
+    >
       <div className="absolute inset-0 flex items-center justify-center p-8">
         <div 
           className="relative"

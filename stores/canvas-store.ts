@@ -59,7 +59,7 @@ function applyTransformToObject(
   object: fabric.Object,
   input: CanvasLayerInput
 ) {
-  const { position, size, opacity, locked } = input;
+  const { position, size, opacity, locked, selectable, evented } = input;
 
   if (position?.x !== undefined) {
     object.set('left', position.x);
@@ -89,6 +89,14 @@ function applyTransformToObject(
     object.set('opacity', opacity);
   }
 
+  // Apply selectable and evented properties before locked check
+  if (selectable !== undefined) {
+    object.set('selectable', selectable);
+  }
+  if (evented !== undefined) {
+    object.set('evented', evented);
+  }
+
   if (locked) {
     object.set({
       lockMovementX: true,
@@ -107,7 +115,7 @@ async function createImageObject(
   return new Promise((resolve, reject) => {
     fabric.Image.fromURL(
       input.source,
-      (img, isError) => {
+      ((img: fabric.Image, isError: boolean) => {
         if (isError) {
           reject(
             new Error(
@@ -127,7 +135,7 @@ async function createImageObject(
         });
 
         resolve(img);
-      },
+      }) as any,
       { crossOrigin: 'anonymous' }
     );
   });
@@ -137,7 +145,7 @@ const TEXT_SELECTION_VISUALS = {
   borderColor: '#1d4ed8',
   cornerColor: '#1d4ed8',
   cornerStrokeColor: '#ffffff',
-  cornerStyle: 'circle' as fabric.Control['cornerStyle'],
+  cornerStyle: 'circle' as 'rect' | 'circle',
   cornerSize: 14,
   transparentCorners: false,
   padding: 12,
@@ -155,15 +163,20 @@ function createTextObject(
   input: CanvasLayerInput & { type: 'text' }
 ): fabric.IText {
   const textObject = new fabric.IText(input.text, {
-    fontFamily: input.fontFamily ?? 'Inter',
-    fontSize: input.fontSize ?? 28,
+    fontFamily: input.fontFamily ?? 'Playfair Display',
+    fontSize: input.fontSize ?? 48,
     fontWeight: input.fontWeight ?? 'normal',
-    lineHeight: input.lineHeight ?? 1.4,
+    lineHeight: input.lineHeight ?? 1.6,
     textAlign: input.textAlign ?? 'center',
-    fill: input.fill ?? '#191919',
+    fill: input.fill ?? '#2d2d2d',
     originX: 'left',
     originY: 'top',
     editable: true,
+    selectable: true,
+    evented: true,
+    hasControls: true,
+    hasBorders: true,
+    lockScalingFlip: true,
   });
 
   applyTextSelectionVisuals(textObject);
@@ -702,7 +715,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     
     fabric.Image.fromURL(
       resolvedUrl,
-      (img, isError) => {
+      ((img: fabric.Image, isError: boolean) => {
         if (isError) {
           console.error('[addImage] Failed to load image:', resolvedUrl, isError);
           return;
@@ -783,7 +796,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         
         set({ selectedObjects: [img] });
         saveHistory();
-      },
+      }) as any,
       { crossOrigin: 'anonymous' }
     );
   },
@@ -1049,15 +1062,18 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     if (!canvas) throw new Error('Canvas not initialized');
     
     return new Promise<Blob>((resolve, reject) => {
-      canvas.toDataURL({
-        format: 'png',
-        multiplier: scale,
-      }, (dataUrl) => {
+      try {
+        const dataUrl = canvas.toDataURL({
+          format: 'png',
+          multiplier: scale,
+        });
         fetch(dataUrl)
           .then((res) => res.blob())
           .then(resolve)
           .catch(reject);
-      });
+      } catch (error) {
+        reject(error);
+      }
     });
   },
   

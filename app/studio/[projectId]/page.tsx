@@ -32,7 +32,7 @@ export default function StudioPage({ params }: { params: { projectId: string } }
   const activeTab = getActiveTab();
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-full flex flex-col">
       <CanvasToolbar />
       <CanvasTabs />
       <div className="flex-1 flex overflow-hidden">

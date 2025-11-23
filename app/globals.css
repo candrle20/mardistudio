@@ -49,5 +49,25 @@
   .animate-shimmer {
     animation: shimmer 1.5s ease-in-out infinite;
   }
+
+  textarea[data-fabric-hiddentextarea="true"] {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    height: 1px !important;
+    width: 1px !important;
+    opacity: 0 !important;
+    border: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    pointer-events: none !important;
+    resize: none !important;
+    background: transparent !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    z-index: -1 !important;
+  }
 }
 

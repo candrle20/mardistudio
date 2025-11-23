@@ -48,7 +48,9 @@ export function TextEditor({ selectedText }: TextEditorProps) {
       }
       
       setFontStyle(text.fontStyle === 'italic' ? 'italic' : 'normal');
-      setTextDecoration(text.textDecoration || 'none');
+      // fabric.IText types are incomplete in v5
+      const textObj = text as any;
+      setTextDecoration(textObj.textDecoration || 'none');
       setTextAlign((text.textAlign || 'left') as 'left' | 'center' | 'right' | 'justify');
       setTextColor(text.fill as string || '#000000');
       setLineHeight(text.lineHeight || 1.2);
@@ -60,7 +62,7 @@ export function TextEditor({ selectedText }: TextEditorProps) {
   const updateTextProperty = (property: string, value: any) => {
     if (!selectedText || !canvas) return;
 
-    selectedText.set(property as keyof fabric.IText, value);
+    (selectedText as any).set(property, value);
     canvas.renderAll();
   };
 

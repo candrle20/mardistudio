@@ -143,8 +143,9 @@ export function CanvasSidebar() {
     const findLayerByTag = (tag: string, preferBottom = false) => {
       if (preferBottom) {
         for (let i = layers.length - 1; i >= 0; i -= 1) {
-          if (layers[i].metadata?.semanticTag === tag) {
-            return layers[i];
+          const layer = layers[i];
+          if (layer.metadata?.semanticTag === tag) {
+            return layer;
           }
         }
         return undefined;
@@ -154,7 +155,7 @@ export function CanvasSidebar() {
 
     let targetLayer:
       | {
-          id: string;
+          id: string | null;
           metadata?: CanvasLayerMetadata;
         }
       | undefined;
@@ -298,7 +299,7 @@ export function CanvasSidebar() {
   const sendBackward = () => {
     if (!selectedObject || !canvas) return;
     console.log('[Layer] Sending backward:', selectedObject.type);
-    canvas.sendBackward(selectedObject);
+    canvas.sendBackwards(selectedObject);
     canvas.renderAll();
     const allObjects = canvas.getObjects();
     console.log('[Layer] New z-index:', allObjects.indexOf(selectedObject), 'of', allObjects.length);

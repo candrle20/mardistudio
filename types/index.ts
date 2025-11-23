@@ -46,6 +46,10 @@ export interface GenerationResult {
   };
   costEstimate?: number;
   generationTimeMs?: number;
+  processing?: {
+    metadataUrl: string;
+    status: 'processing' | 'completed' | 'failed';
+  };
 }
 
 export interface ReferenceImage {

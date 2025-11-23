@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useCanvasStore } from '@/stores/canvas-store';
+import { fabric } from 'fabric';
 import { Keyboard, X } from 'lucide-react';
 
 interface Shortcut {
@@ -147,7 +148,7 @@ export function KeyboardShortcuts() {
       // Cmd/Ctrl + [ - Send backward
       if (cmdOrCtrl && e.key === '[' && !shift && activeObject) {
         e.preventDefault();
-        canvas.sendBackward(activeObject);
+        canvas.sendBackwards(activeObject);
         canvas.renderAll();
       }
 

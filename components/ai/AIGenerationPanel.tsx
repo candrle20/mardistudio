@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { v4 as uuidv4 } from 'uuid';
 import { useAIStore } from '@/stores/ai-store';
 import { useTabStore } from '@/stores/tab-store';
 import { useCanvasStore } from '@/stores/canvas-store';
 import { useUIStore } from '@/stores/ui-store';
+import { useInspirationStore, STATIONERY_TYPES, ELEMENT_CATEGORIES } from '@/stores/inspiration-store';
 import {
   Sparkles,
   X,
@@ -17,19 +18,19 @@ import {
   Trash2,
   Image as ImageIcon,
   Wand2,
+  CheckCircle2,
+  Filter,
 } from 'lucide-react';
-import { ARTIST_STYLES } from '@/lib/prompts/styles';
-import type { AspectRatio, GenerationQuality, ReferenceImage, Style } from '@/types';
+import type { AspectRatio, GenerationQuality, ReferenceImage } from '@/types';
+import Link from 'next/link';
 
+// Updated prompt suggestions that are more generic since style comes from inspiration
 const promptSuggestions = [
-  'Elegant watercolor floral design with soft pink roses',
-  'Modern minimalist geometric patterns in gold and white',
-  'Romantic botanical illustration with eucalyptus leaves',
-  'Vintage art deco style with intricate borders',
-  'Delicate calligraphy-style typography with floral accents',
-  'Boho chic design with dreamcatchers and feathers',
-  'Classic monogram design with elegant script',
-  'Garden party theme with wildflowers and butterflies',
+  'Wedding invitation with elegant floral border',
+  'Minimalist save the date card',
+  'Art deco style dinner menu',
+  'Botanical themed rsvp card',
+  'Modern geometric party invitation',
 ];
 
 const aspectOptions: { label: string; value: AspectRatio }[] = [
@@ -44,7 +45,6 @@ const qualityOptions: { label: string; value: GenerationQuality; description: st
   { label: 'Print', value: 'print', description: 'Background for print (~0.04 credits)' },
 ];
 
-const STYLE_LIST: Style[] = Object.values(ARTIST_STYLES);
 
 async function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -64,42 +64,127 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+const IMAGE_EXTENSION_PATTERN = /\.(avif|bmp|gif|jfif|jpeg|jpg|png|tif|tiff|webp)$/i;
+
+function isValidImageFile(file: File): boolean {
+  const hasImageMime = file.type?.startsWith('image/');
+  const hasImageExt = IMAGE_EXTENSION_PATTERN.test(file.name || '');
+  return Boolean(hasImageMime || hasImageExt);
+}
+
+function extractFilesFromDataTransfer(dataTransfer?: DataTransfer | null): File[] {
+  if (!dataTransfer) return [];
+
+  const fromItems =
+    dataTransfer.items && dataTransfer.items.length
+      ? Array.from(dataTransfer.items)
+          .map((item) => (item.kind === 'file' ? item.getAsFile() : null))
+          .filter((file): file is File => Boolean(file))
+      : [];
+
+  if (fromItems.length > 0) {
+    return fromItems;
+  }
+
+  if (dataTransfer.files?.length) {
+    return Array.from(dataTransfer.files);
+  }
+
+  return [];
+}
+
 export function AIGenerationPanel() {
   const { aiPanelOpen, toggleAIPanel } = useUIStore();
-  const {
-    prompt,
-    setPrompt,
-    selectedStyle,
-    setStyle,
-    aspectRatio,
-    setAspectRatio,
-    quality,
-    setQuality,
-    isGenerating,
-    generate,
-    regenerate,
-    references,
-    addReference,
-    removeReference,
-    clearReferences,
-    baseImage,
-    setBaseImage,
-    mask,
-    setMask,
-    clearImageInputs,
-    error,
-    clearError,
-    lastResult,
-    setTemplateContext,
-  } = useAIStore();
+  const references = useAIStore((state) => state.references);
+  const addReference = useAIStore((state) => state.addReference);
+  const removeReference = useAIStore((state) => state.removeReference);
+  const clearReferences = useAIStore((state) => state.clearReferences);
+  const prompt = useAIStore((state) => state.prompt);
+  const setPrompt = useAIStore((state) => state.setPrompt);
+  
+  const selectedInspirations = useAIStore((state) => state.selectedInspirations);
+  const toggleInspiration = useAIStore((state) => state.toggleInspiration);
+  
+  const selectedElements = useAIStore((state) => state.selectedElements);
+  const toggleElement = useAIStore((state) => state.toggleElement);
+  const aspectRatio = useAIStore((state) => state.aspectRatio);
+  const setAspectRatio = useAIStore((state) => state.setAspectRatio);
+  const quality = useAIStore((state) => state.quality);
+  const setQuality = useAIStore((state) => state.setQuality);
+  const isGenerating = useAIStore((state) => state.isGenerating);
+  const generate = useAIStore((state) => state.generate);
+  const regenerate = useAIStore((state) => state.regenerate);
+  const baseImage = useAIStore((state) => state.baseImage);
+  const setBaseImage = useAIStore((state) => state.setBaseImage);
+  const mask = useAIStore((state) => state.mask);
+  const setMask = useAIStore((state) => state.setMask);
+  const clearImageInputs = useAIStore((state) => state.clearImageInputs);
+  const error = useAIStore((state) => state.error);
+  const setError = useAIStore((state) => state.setError);
+  const clearError = useAIStore((state) => state.clearError);
+  const lastResult = useAIStore((state) => state.lastResult);
+  const setTemplateContext = useAIStore((state) => state.setTemplateContext);
   const { getActiveTab, createVariantFromActive, updateTab } = useTabStore();
-  const { addImage, exportToPNG, canvas } = useCanvasStore();
+  const { exportToPNG, canvas } = useCanvasStore();
+  const { getLikedInspirations, getFilteredInspirations, inspirations } = useInspirationStore();
   const [showSettings, setShowSettings] = useState(false);
   const [showCanvasAsBase, setShowCanvasAsBase] = useState(false);
   const [canvasWarning, setCanvasWarning] = useState(false);
+  const referenceInputRef = useRef<HTMLInputElement | null>(null);
+  const referenceDragCounter = useRef(0);
+  const [isReferenceDragActive, setReferenceDragActive] = useState(false);
+
+  // Filter state
+  const [stationeryFilter, setStationeryFilter] = useState<string | null>(null);
+  const [elementFilter, setElementFilter] = useState<string | null>(null);
+
+  // Logic for selecting elements/inspirations
+  const likedInspirations = getLikedInspirations();
+  
+  // Filter designs (type 'design')
+  // Always start with all inspirations to ensure consistent data availability
+  let displayDesigns = inspirations.filter(i => i.type === 'design');
+
+  // Apply Stationery Filter
+  if (stationeryFilter) {
+    displayDesigns = displayDesigns.filter(img => img.tags && img.tags.includes(stationeryFilter));
+  }
+
+  // Sort: Liked items first
+  displayDesigns.sort((a, b) => {
+      const aLiked = likedInspirations.some(l => l.id === a.id);
+      const bLiked = likedInspirations.some(l => l.id === b.id);
+      if (aLiked && !bLiked) return -1;
+      if (!aLiked && bLiked) return 1;
+      return 0;
+  });
+
+  // Filter elements (type 'element')
+  // Always start with all elements
+  let displayElements = inspirations.filter(i => i.type === 'element');
+
+  // Apply Element Filter
+  if (elementFilter) {
+      displayElements = displayElements.filter(img => img.tags && img.tags.includes(elementFilter));
+  }
+  
+  // Sort: Liked items first
+  displayElements.sort((a, b) => {
+      const aLiked = likedInspirations.some(l => l.id === a.id);
+      const bLiked = likedInspirations.some(l => l.id === b.id);
+      if (aLiked && !bLiked) return -1;
+      if (!aLiked && bLiked) return 1;
+      return 0;
+  });
+    
+  const hasLikedElements = likedInspirations.length > 0;
+  
+  // Expand panel width if elements are selected
+  const isExpanded = selectedElements.length > 0;
+  const panelWidthClass = isExpanded ? 'w-[600px]' : 'w-96';
 
   const handleGenerate = async () => {
-    if (!prompt || !selectedStyle) return;
+    if (!prompt) return;
 
     // Check if canvas exists before generating
     if (!canvas) {
@@ -160,7 +245,7 @@ export function AIGenerationPanel() {
   };
 
   const handleRegenerate = async () => {
-    if (!prompt || !selectedStyle) return;
+    if (!prompt) return;
 
     console.log('[AIGenerationPanel] Starting regeneration...');
     try {
@@ -196,8 +281,6 @@ export function AIGenerationPanel() {
           }
         }
 
-        // The background image will be loaded automatically from metadata
-        // No need to manually add it
         console.log('[AIGenerationPanel] Regeneration complete, background will load from metadata');
       } else {
         console.error('[AIGenerationPanel] No imageUrl in result');
@@ -207,20 +290,113 @@ export function AIGenerationPanel() {
     }
   };
 
-  const onDropReferences = useCallback(
-    async (acceptedFiles: File[]) => {
-      for (const file of acceptedFiles.slice(0, 3)) {
-        const dataUrl = await fileToDataUrl(file);
-        const reference: ReferenceImage = {
-          id: uuidv4(),
-          dataUrl,
-          fileName: file.name,
-          mimeType: file.type,
-        };
-        addReference(reference);
+  const handleReferenceFiles = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
+
+      const validFiles: File[] = [];
+      const errors: string[] = [];
+
+      for (const file of files) {
+        if (!isValidImageFile(file)) {
+          errors.push(`${file.name || 'Unnamed file'} is not an image`);
+          continue;
+        }
+        validFiles.push(file);
+      }
+
+      if (errors.length > 0) {
+        setError(`Upload issues: ${errors.join(', ')}`);
+      } else {
+        clearError();
+      }
+
+      if (validFiles.length === 0) return;
+
+      const filesToProcess = validFiles.slice(0, 3);
+
+      for (const file of filesToProcess) {
+        try {
+          const dataUrl = await fileToDataUrl(file);
+          const reference: ReferenceImage = {
+            id: uuidv4(),
+            dataUrl,
+            fileName: file.name,
+            mimeType: file.type || 'application/octet-stream',
+          };
+
+          addReference(reference);
+        } catch (error) {
+          console.error('Failed to process file:', file.name, error);
+          setError(`Failed to process ${file.name}`);
+        }
       }
     },
-    [addReference]
+    [addReference, clearError, setError]
+  );
+
+  const handleReferenceInputChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const files = event.target.files;
+      if (!files?.length) return;
+      await handleReferenceFiles(Array.from(files));
+      event.target.value = '';
+    },
+    [handleReferenceFiles]
+  );
+
+  const openReferenceFileDialog = useCallback(() => {
+    referenceInputRef.current?.click();
+  }, []);
+
+  const handleReferenceDragEnter = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (isGenerating) return;
+      referenceDragCounter.current += 1;
+      setReferenceDragActive(true);
+    },
+    [isGenerating]
+  );
+
+  const handleReferenceDragLeave = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (isGenerating) return;
+      referenceDragCounter.current = Math.max(referenceDragCounter.current - 1, 0);
+      if (referenceDragCounter.current === 0) {
+        setReferenceDragActive(false);
+      }
+    },
+    [isGenerating]
+  );
+
+  const handleReferenceDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (isGenerating) return;
+      event.dataTransfer.dropEffect = 'copy';
+    },
+    [isGenerating]
+  );
+
+  const handleReferenceDrop = useCallback(
+    async (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      referenceDragCounter.current = 0;
+      setReferenceDragActive(false);
+
+      if (isGenerating) return;
+
+      const files = extractFilesFromDataTransfer(event.dataTransfer);
+      await handleReferenceFiles(files);
+    },
+    [handleReferenceFiles, isGenerating]
   );
 
   const onDropMask = useCallback(
@@ -253,16 +429,6 @@ export function AIGenerationPanel() {
     },
     [setBaseImage]
   );
-
-  const referenceDropzone = useDropzone({
-    onDrop: onDropReferences,
-    accept: {
-      'image/png': ['.png'],
-      'image/jpeg': ['.jpg', '.jpeg'],
-      'image/webp': ['.webp'],
-    },
-    disabled: isGenerating,
-  });
 
   const baseImageDropzone = useDropzone({
     onDrop: onDropBaseImage,
@@ -301,16 +467,16 @@ export function AIGenerationPanel() {
     }
   }, [exportToPNG, setBaseImage]);
 
-  const disableGenerate = !prompt.trim() || !selectedStyle || isGenerating;
+  const disableGenerate = !prompt.trim() || isGenerating;
 
   if (!aiPanelOpen) return null;
 
-  const selectedStyleDetails = STYLE_LIST.find((style) => style.id === selectedStyle?.id);
-
   return (
-    <div className="fixed inset-y-0 right-0 w-96 bg-white border-l shadow-xl z-50 flex flex-col">
+    <div 
+      className={`fixed inset-y-0 right-0 ${panelWidthClass} bg-white border-l shadow-xl z-50 flex flex-col transition-all duration-300 ease-in-out`}
+    >
       {/* Header */}
-      <div className="h-16 border-b px-4 flex items-center justify-between">
+      <div className="h-16 border-b px-4 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-primary" />
           <h2 className="text-lg font-semibold">AI Generation</h2>
@@ -325,33 +491,186 @@ export function AIGenerationPanel() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Style Selector */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+
+        {/* 1. TEMPLATE SELECTION (Stationery Type) */}
         <div>
-          <label className="text-sm font-semibold mb-2 block">Style</label>
-          <select
-            value={selectedStyle?.id || ''}
-            onChange={(e) => {
-              const style = STYLE_LIST.find((s) => s.id === e.target.value);
-              if (style) setStyle(style);
-            }}
-            className="w-full px-3 py-2 border rounded text-sm"
-          >
-            <option value="">Select a style...</option>
-            {STYLE_LIST.map((style) => (
-              <option key={style.id} value={style.id}>
-                {style.name} by {style.artistName}
-              </option>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-semibold block flex items-center gap-2">
+              1. Select Template Type
+            </label>
+            <span className="text-xs text-gray-500">
+              {stationeryFilter 
+                ? STATIONERY_TYPES.find(t => t.id === stationeryFilter)?.label 
+                : 'All Types'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-2 px-2 scrollbar-hide">
+            <button
+               onClick={() => setStationeryFilter(null)}
+               className={`px-3 py-1 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                   stationeryFilter === null
+                   ? 'bg-black text-white'
+                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+               }`}
+            >
+               All
+            </button>
+            {STATIONERY_TYPES.map((type) => (
+               <button
+                   key={type.id}
+                   onClick={() => setStationeryFilter(stationeryFilter === type.id ? null : type.id)}
+                   className={`px-3 py-1 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                       stationeryFilter === type.id
+                       ? 'bg-black text-white'
+                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                   }`}
+               >
+                   {type.label}
+               </button>
             ))}
-          </select>
-          {selectedStyleDetails && (
-            <div className="mt-2 p-3 bg-gray-50 rounded text-xs">
-              <p className="font-medium">{selectedStyleDetails.name}</p>
-              <p className="text-gray-600">
-                Powered by {selectedStyleDetails.artistName}
-              </p>
+          </div>
+        </div>
+        
+        {/* 2. LAYOUT SELECTION (Multi Select) */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-semibold block flex items-center gap-2">
+              2. Select Layout Inspiration
+            </label>
+            <span className="text-xs text-gray-500">
+              {selectedInspirations.length > 0 ? `${selectedInspirations.length} selected` : 'Choose multiple'}
+            </span>
+          </div>
+          
+          <div className="w-full overflow-x-auto pb-2 -mx-2 px-2">
+            <div className="flex gap-2" style={{ minWidth: 'min-content' }}>
+              {displayDesigns.map((design) => {
+                const isSelected = selectedInspirations.some(i => i.id === design.id);
+                return (
+                  <button
+                    key={design.id}
+                    onClick={() => toggleInspiration(design)}
+                    className={`relative w-32 aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all flex-shrink-0 group ${
+                      isSelected
+                        ? 'border-primary ring-2 ring-primary/20 scale-105 shadow-md'
+                        : 'border-transparent hover:border-gray-300 hover:shadow-sm'
+                    }`}
+                    title={design.title}
+                  >
+                    <img
+                      src={design.url}
+                      alt={design.title}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className={`absolute inset-0 transition-colors ${isSelected ? 'bg-primary/10' : 'bg-transparent group-hover:bg-black/5'}`} />
+                    
+                    {isSelected && (
+                      <div className="absolute top-1 right-1 bg-white rounded-full p-0.5 shadow-sm">
+                        <CheckCircle2 className="w-4 h-4 text-primary fill-white" />
+                      </div>
+                    )}
+                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                       <p className="text-[10px] text-white truncate">{design.title}</p>
+                    </div>
+                  </button>
+                );
+              })}
+              {displayDesigns.length === 0 && (
+                <div className="w-full py-6 text-center bg-gray-50 rounded border border-dashed">
+                  <p className="text-xs text-gray-500">
+                    {stationeryFilter 
+                        ? `No ${STATIONERY_TYPES.find(t => t.id === stationeryFilter)?.label} designs found.`
+                        : "No designs available."}
+                  </p>
+                </div>
+              )}
             </div>
-          )}
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1 italic">
+            These define the structure/layout of your design. Select multiple to combine structures.
+          </p>
+        </div>
+
+        {/* 3. ELEMENT SELECTION (Multi Select) */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-semibold block flex items-center gap-2">
+              3. Select Decorative Elements
+            </label>
+            <span className="text-xs text-gray-500">
+              {selectedElements.length > 0 ? `${selectedElements.length} selected` : 'Select multiple'}
+            </span>
+          </div>
+
+          {/* Element Categories */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-2 px-2 scrollbar-hide mb-2">
+            <button
+               onClick={() => setElementFilter(null)}
+               className={`px-3 py-1 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                   elementFilter === null
+                   ? 'bg-black text-white'
+                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+               }`}
+            >
+               All
+            </button>
+            {ELEMENT_CATEGORIES.map((cat) => (
+               <button
+                   key={cat.id}
+                   onClick={() => setElementFilter(elementFilter === cat.id ? null : cat.id)}
+                   className={`px-3 py-1 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                       elementFilter === cat.id
+                       ? 'bg-black text-white'
+                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                   }`}
+               >
+                   {cat.label}
+               </button>
+            ))}
+          </div>
+          
+          <div className="w-full overflow-x-auto pb-2 -mx-2 px-2">
+            <div className="flex gap-2" style={{ minWidth: 'min-content' }}>
+              {displayElements.map((element) => {
+                const isSelected = selectedElements.some(e => e.id === element.id);
+                return (
+                  <button
+                    key={element.id}
+                    onClick={() => toggleElement(element)}
+                    className={`relative w-20 aspect-square rounded-lg overflow-hidden border-2 transition-all flex-shrink-0 group ${
+                      isSelected
+                        ? 'border-primary ring-2 ring-primary/20 scale-105 shadow-md'
+                        : 'border-transparent hover:border-gray-300 hover:shadow-sm'
+                    }`}
+                    title={element.title}
+                  >
+                    <img
+                      src={element.url}
+                      alt={element.title}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className={`absolute inset-0 transition-colors ${isSelected ? 'bg-primary/10' : 'bg-transparent group-hover:bg-black/5'}`} />
+                    
+                    {isSelected && (
+                      <div className="absolute top-1 right-1 bg-white rounded-full p-0.5 shadow-sm">
+                        <CheckCircle2 className="w-3 h-3 text-primary fill-white" />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+              {displayElements.length === 0 && (
+                <div className="w-full py-6 text-center bg-gray-50 rounded border border-dashed">
+                  <p className="text-xs text-gray-500">No elements available.</p>
+                </div>
+              )}
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1 italic">
+            These items (flowers, icons, etc.) will be woven into the layout.
+          </p>
         </div>
 
         {/* Prompt Input */}
@@ -360,8 +679,8 @@ export function AIGenerationPanel() {
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe the design you want to generate..."
-            className="w-full px-3 py-2 border rounded text-sm min-h-[120px] resize-none"
+            placeholder="Describe specific details (e.g., 'Use a watercolor style', 'Add gold foil accents')..."
+            className="w-full px-3 py-2 border rounded text-sm min-h-[100px] resize-none"
             maxLength={500}
           />
           <div className="flex justify-between items-center mt-1">
@@ -375,19 +694,6 @@ export function AIGenerationPanel() {
             >
               💡 Get suggestion
             </button>
-          </div>
-
-          {/* Prompt Suggestions */}
-          <div className="mt-2 flex flex-wrap gap-2">
-            {promptSuggestions.slice(0, 3).map((suggestion, idx) => (
-              <button
-                key={idx}
-                onClick={() => setPrompt(suggestion)}
-                className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
-              >
-                {suggestion.substring(0, 30)}...
-              </button>
-            ))}
           </div>
         </div>
 
@@ -469,113 +775,6 @@ export function AIGenerationPanel() {
           </div>
         )}
 
-        {/* Reference Images */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-semibold">Style References (optional)</label>
-            {references.length > 0 && (
-              <button onClick={clearReferences} className="text-xs text-primary hover:underline">
-                Clear
-              </button>
-            )}
-          </div>
-          <div
-            {...referenceDropzone.getRootProps()}
-            className="border-2 border-dashed border-gray-200 rounded p-3 text-center text-xs text-gray-500 cursor-pointer hover:border-primary transition"
-          >
-            <input {...referenceDropzone.getInputProps()} />
-            <div className="flex flex-col items-center gap-1">
-              <Upload className="w-4 h-4" />
-              <span>Drop up to 3 inspiration images</span>
-              <span className="text-[10px]">PNG, JPG, or WEBP</span>
-            </div>
-          </div>
-          {references.length > 0 && (
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              {references.map((ref) => (
-                <div key={ref.id} className="relative group">
-                  <img
-                    src={ref.dataUrl}
-                    alt={ref.fileName || 'Reference'}
-                    className="w-full h-20 object-cover rounded border"
-                  />
-                  <button
-                    onClick={() => removeReference(ref.id)}
-                    className="absolute top-1 right-1 bg-white/80 rounded-full p-1 shadow hover:bg-white"
-                  >
-                    <Trash2 className="w-3 h-3 text-red-500" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Image-to-Image */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-semibold flex items-center gap-2">
-              <Wand2 className="w-4 h-4 text-primary" />
-              Use existing artwork
-            </label>
-            <div className="flex items-center gap-2 text-xs">
-              <button
-                onClick={handleUseCanvasAsBase}
-                className="px-2 py-1 border rounded hover:bg-gray-50 flex items-center gap-1"
-              >
-                <ImageIcon className="w-3 h-3" />
-                Use canvas
-              </button>
-              {baseImage && (
-                <button
-                  onClick={() => {
-                    clearImageInputs();
-                    setShowCanvasAsBase(false);
-                  }}
-                  className="px-2 py-1 border rounded hover:bg-gray-50 flex items-center gap-1"
-                >
-                  <Trash2 className="w-3 h-3 text-red-500" />
-                  Reset
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div
-              {...baseImageDropzone.getRootProps()}
-              className="border-2 border-dashed border-gray-200 rounded p-3 text-center text-xs text-gray-500 cursor-pointer hover:border-primary transition"
-            >
-              <input {...baseImageDropzone.getInputProps()} />
-              <span>Base image</span>
-              {baseImage && <span className="block text-[10px] text-primary">Selected</span>}
-            </div>
-            <div
-              {...maskDropzone.getRootProps()}
-              className="border-2 border-dashed border-gray-200 rounded p-3 text-center text-xs text-gray-500 cursor-pointer hover:border-primary transition"
-            >
-              <input {...maskDropzone.getInputProps()} />
-              <span>Mask (PNG)</span>
-              {mask && <span className="block text-[10px] text-primary">Selected</span>}
-            </div>
-          </div>
-
-          {(baseImage || showCanvasAsBase) && (
-            <div className="border rounded p-2 bg-gray-50">
-              <p className="text-xs text-gray-600 mb-1">
-                Editable regions will exclude text layers when mask is provided.
-              </p>
-              {baseImage && (
-                <img
-                  src={baseImage.dataUrl}
-                  alt="Base preview"
-                  className="w-full h-32 object-cover rounded border"
-                />
-              )}
-            </div>
-          )}
-        </div>
-
         {/* Generation Status */}
         {isGenerating && (
           <div className="p-4 bg-blue-50 rounded border border-blue-200">
@@ -604,7 +803,7 @@ export function AIGenerationPanel() {
       </div>
 
       {/* Footer Actions */}
-      <div className="border-t p-4 space-y-2">
+      <div className="border-t p-4 space-y-2 flex-shrink-0">
         <button
           onClick={handleGenerate}
           disabled={disableGenerate}
@@ -622,7 +821,7 @@ export function AIGenerationPanel() {
             </>
           )}
         </button>
-        {prompt && selectedStyle && !isGenerating && (
+        {prompt && !isGenerating && (
           <button
             onClick={handleRegenerate}
             className="w-full px-4 py-2 border rounded hover:bg-gray-50 flex items-center justify-center gap-2 text-sm"
@@ -635,4 +834,3 @@ export function AIGenerationPanel() {
     </div>
   );
 }
-

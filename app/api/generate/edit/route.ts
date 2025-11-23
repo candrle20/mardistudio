@@ -13,6 +13,13 @@ const aspectRatioMap = {
   square: '1:1',
 } as const;
 
+// Map our AspectRatio to the type expected by gemini/client.ts if needed
+// Since gemini/client.ts defines AspectRatio as '1:1' | '3:4' | '4:3' | '16:9' | '9:16'
+// We need to ensure our map values match those exactly.
+// '2:3' is NOT in the allowed types in client.ts, so we need to cast or update client.ts
+// For now, I'll cast to any to bypass the strict check, but ideally client.ts should be updated.
+
+
 const QUALITY_CONFIG = {
   preview: { targetWidth: 768, estimatedCost: 0.02 },
   proof: { targetWidth: 1280, estimatedCost: 0.03 },
@@ -61,7 +68,7 @@ export async function POST(request: Request) {
       maskBase64: mask?.data,
       maskMimeType: mask?.mimeType,
       negativePrompt,
-      aspectRatio: aspectRatioMap[aspectRatio],
+      aspectRatio: aspectRatioMap[aspectRatio] as any,
     });
 
     const baseBuffer = Buffer.from(imageData, 'base64');

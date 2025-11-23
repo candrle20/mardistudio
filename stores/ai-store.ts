@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { Style, GenerationResult, ReferenceImage, GenerationQuality, AspectRatio } from '@/types';
+import { GenerationResult, ReferenceImage, GenerationQuality, AspectRatio } from '@/types';
 import type { StationeryTemplateType } from '@/types/stationery';
 import { buildTemplatePrompt } from '@/lib/prompts/template-guides';
+import { InspirationImage } from './inspiration-store';
 
 type TemplateContext = {
   type: StationeryTemplateType;
@@ -14,7 +15,8 @@ interface AIStoreState {
   isGenerating: boolean;
   error: string | null;
   prompt: string;
-  selectedStyle: Style | null;
+  selectedInspirations: InspirationImage[]; // Changed from single to array
+  selectedElements: InspirationImage[];
   aspectRatio: AspectRatio;
   quality: GenerationQuality;
   references: ReferenceImage[];
@@ -28,7 +30,10 @@ interface AIStoreState {
 
 interface AIStoreActions {
   setPrompt: (prompt: string) => void;
-  setStyle: (style: Style | null) => void;
+  toggleInspiration: (inspiration: InspirationImage) => void; // Replaces setInspiration
+  clearInspirations: () => void;
+  toggleElement: (element: InspirationImage) => void;
+  clearElements: () => void;
   setAspectRatio: (ratio: AspectRatio) => void;
   setQuality: (quality: GenerationQuality) => void;
   addReference: (reference: ReferenceImage) => void;
@@ -37,6 +42,7 @@ interface AIStoreActions {
   setBaseImage: (image: ReferenceImage | null) => void;
   setMask: (mask: ReferenceImage | null) => void;
   clearImageInputs: () => void;
+  setError: (error: string) => void;
   clearError: () => void;
   generate: () => Promise<GenerationResult>;
   regenerate: () => Promise<GenerationResult>;
@@ -91,7 +97,8 @@ export const useAIStore = create<AIStore>((set, get) => ({
   isGenerating: false,
   error: null,
   prompt: '',
-  selectedStyle: null,
+  selectedInspirations: [], // Initialize as array
+  selectedElements: [],
   aspectRatio: '5x7',
   quality: 'proof',
   references: [],
@@ -103,7 +110,37 @@ export const useAIStore = create<AIStore>((set, get) => ({
   templateContext: null,
 
   setPrompt: (prompt) => set({ prompt }),
-  setStyle: (style) => set({ selectedStyle: style }),
+  
+  toggleInspiration: (inspiration) => set((state) => {
+    const isSelected = state.selectedInspirations.some(i => i.id === inspiration.id);
+    if (isSelected) {
+      return { selectedInspirations: state.selectedInspirations.filter(i => i.id !== inspiration.id) };
+    } else {
+        // Limit number of layout inspirations if needed (e.g., max 3)
+        if (state.selectedInspirations.length >= 3) {
+            return state; 
+        }
+      return { selectedInspirations: [...state.selectedInspirations, inspiration] };
+    }
+  }),
+
+  clearInspirations: () => set({ selectedInspirations: [] }),
+  
+  toggleElement: (element) => set((state) => {
+    const isSelected = state.selectedElements.some(e => e.id === element.id);
+    if (isSelected) {
+      return { selectedElements: state.selectedElements.filter(e => e.id !== element.id) };
+    } else {
+      // Limit to 10 elements to allow for border/frame creation (4 corners + sides)
+      if (state.selectedElements.length >= 10) {
+        return state;
+      }
+      return { selectedElements: [...state.selectedElements, element] };
+    }
+  }),
+
+  clearElements: () => set({ selectedElements: [] }),
+
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
   setQuality: (quality) => set({ quality }),
 
@@ -124,6 +161,7 @@ export const useAIStore = create<AIStore>((set, get) => ({
   setBaseImage: (image) => set({ baseImage: image }),
   setMask: (mask) => set({ mask }),
   clearImageInputs: () => set({ baseImage: null, mask: null }),
+  setError: (error) => set({ error }),
   clearError: () => set({ error: null }),
 
   setLastResult: (result) => set({ lastResult: result }),
@@ -143,7 +181,8 @@ export const useAIStore = create<AIStore>((set, get) => ({
   generate: async () => {
     const {
       prompt,
-      selectedStyle,
+      selectedInspirations,
+      selectedElements,
       references,
       baseImage,
       mask,
@@ -160,10 +199,6 @@ export const useAIStore = create<AIStore>((set, get) => ({
 
     if (!prompt?.trim()) {
       throw new Error('Prompt is required');
-    }
-
-    if (!selectedStyle) {
-      throw new Error('Please choose a style before generating.');
     }
 
     const controller = new AbortController();
@@ -214,15 +249,27 @@ export const useAIStore = create<AIStore>((set, get) => ({
         return closest.key;
       };
 
-      const basePayload = {
+      const basePayload: any = {
         prompt: templatePrompt,
-        styleId: selectedStyle.id,
         aspectRatio: inferAspectRatio(),
         quality,
         templateSize: templateSizePayload,
         templateType: templateContext?.type,
         templateName: templateContext?.name,
       };
+
+      if (selectedInspirations.length > 0) {
+        // If API expects single, use first. If API updated to array, use map.
+        // Based on previous turn, I'll update API next to support multiple
+        // For now, I'll pass array, but assume I'll fix API in next step.
+        basePayload.inspirationUrls = selectedInspirations.map(i => i.url);
+        // Keep backward compat for now if needed
+        basePayload.inspirationUrl = selectedInspirations[0].url;
+      }
+
+      if (selectedElements.length > 0) {
+        basePayload.elementUrls = selectedElements.map(e => e.url);
+      }
 
       let result: GenerationResult;
 
@@ -278,9 +325,9 @@ export const useAIStore = create<AIStore>((set, get) => ({
   },
 
   regenerate: async () => {
-    const { prompt, selectedStyle } = get();
-    if (!prompt || !selectedStyle) {
-      throw new Error('Prompt and style required to regenerate.');
+    const { prompt } = get();
+    if (!prompt) {
+      throw new Error('Prompt required to regenerate.');
     }
     return get().generate();
   },

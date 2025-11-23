@@ -34,6 +34,8 @@ interface BaseLayerInput {
   size?: LayerSize;
   metadata?: Record<string, unknown>;
   maskUrl?: string;
+  selectable?: boolean;
+  evented?: boolean;
 }
 
 export interface ImageLayerInput extends BaseLayerInput {

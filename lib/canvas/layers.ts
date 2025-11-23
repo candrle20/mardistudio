@@ -1,7 +1,4 @@
 import { fabric } from 'fabric';
-'use client';
-
-import { fabric } from 'fabric';
 import { useCanvasStore } from '@/stores/canvas-store';
 import type { CanvasLayerInput, ImageLayerInput, LayerSemanticTag } from '@/types/canvas';
 import type { ParsedLayer, ParsedImageLayers } from '@/types/image-processing';
@@ -95,6 +92,8 @@ export async function importParsedLayers({ canvas, layers }: LayerImportOptions)
       position: { x: 0, y: 0 },
       size: { width: canvasWidth, height: canvasHeight },
       name: 'Background',
+      selectable: false, // Background should not be selectable
+      evented: false, // Background should not intercept events
     });
   }
 
@@ -107,7 +106,9 @@ export async function importParsedLayers({ canvas, layers }: LayerImportOptions)
 
   for (const textLayer of layers.typography) {
     const textContent = (textLayer.payload?.text as string | undefined) ?? '';
+    const styleHints = textLayer.payload?.styleHints as Record<string, any> | undefined;
     const textAlign =
+      (styleHints?.textAlign as 'left' | 'center' | 'right' | 'justify' | undefined) ??
       (textLayer.payload?.textAlign as 'left' | 'center' | 'right' | 'justify' | undefined) ??
       'center';
 
@@ -120,12 +121,26 @@ export async function importParsedLayers({ canvas, layers }: LayerImportOptions)
         x: textLayer.bounds.x,
         y: textLayer.bounds.y,
       },
-      fontFamily: (textLayer.payload?.fontFamily as string | undefined) ?? 'Playfair Display',
-      fontSize: (textLayer.payload?.fontSize as number | undefined) ?? 48,
-      fontWeight: (textLayer.payload?.fontWeight as 'normal' | 'bold' | 'lighter' | undefined) ?? 'normal',
-      lineHeight: (textLayer.payload?.lineHeight as number | undefined) ?? 1.2,
+      size: {
+        width: textLayer.bounds.width,
+        height: textLayer.bounds.height,
+      },
+      fontFamily: (styleHints?.fontFamily as string | undefined) ?? 
+                  (textLayer.payload?.fontFamily as string | undefined) ?? 
+                  'Playfair Display',
+      fontSize: (styleHints?.fontSize as number | undefined) ?? 
+                (textLayer.payload?.fontSize as number | undefined) ?? 
+                48,
+      fontWeight: (styleHints?.fontWeight as any) ?? 
+                  (textLayer.payload?.fontWeight as any) ?? 
+                  'normal',
+      lineHeight: (styleHints?.lineHeight as number | undefined) ?? 
+                  (textLayer.payload?.lineHeight as number | undefined) ?? 
+                  1.6,
       textAlign,
-      fill: (textLayer.payload?.color as string | undefined) ?? '#1f1f1f',
+      fill: (styleHints?.color as string | undefined) ?? 
+            (textLayer.payload?.color as string | undefined) ?? 
+            '#2d2d2d',
       metadata: makeMetadata(textLayer, 'typography'),
       zIndex: zIndex++,
       name: textLayer.payload?.label as string | undefined,

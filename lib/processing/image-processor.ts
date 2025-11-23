@@ -24,11 +24,13 @@ type PlaceholderDefinition = {
   region: 'center' | 'bottom' | 'top';
 };
 
+// Single elegant text placeholder - users can add more if needed
+const SINGLE_ELEGANT_TEXT = `Click to Edit Text
+
+Add your invitation details here`;
+
 const PLACEHOLDER_DEFINITIONS: PlaceholderDefinition[] = [
-  { key: 'title', text: 'Your Headline Here', role: 'headline', region: 'center' },
-  { key: 'subtitle', text: 'Your secondary text', role: 'subtitle', region: 'center' },
-  { key: 'body', text: 'Share event details, venue, or heartfelt message here.', role: 'body', region: 'center' },
-  { key: 'dates', text: 'Saturday · 5:00 PM · Your City', role: 'details', region: 'center' },
+  { key: 'main', text: SINGLE_ELEGANT_TEXT, role: 'headline', region: 'center' },
 ];
 
 function chooseTextRegion(template?: TemplateDescriptor | null): PlaceholderDefinition[] {
@@ -94,83 +96,43 @@ function buildPlaceholderTypography(
   const width = canvasWidth && canvasWidth > 0 ? canvasWidth : 1500;
   const height = canvasHeight && canvasHeight > 0 ? canvasHeight : 2100;
 
-  const definitions = chooseTextRegion(template);
-  const groups = new Map<PlaceholderDefinition['region'], PlaceholderDefinition[]>();
-  for (const definition of definitions) {
-    const collection = groups.get(definition.region) ?? [];
-    collection.push(definition);
-    groups.set(definition.region, collection);
-  }
+  // Single elegant centered text box
+  const columnLeft = Math.round(width * 0.15);
+  const columnWidth = Math.round(width * 0.70);
+  
+  // Center vertically with generous space
+  const textHeight = Math.round(height * 0.40);
+  const y = Math.round((height - textHeight) / 2);
 
-  const columnLeft = Math.round(width * 0.18);
-  const columnWidth = Math.round(width * 0.64);
-  let minTop = height;
-  let maxBottom = 0;
-
-  const layers: ParsedLayer[] = [];
-
-  const fontScaleByRole: Record<(typeof DEFAULT_TEXT_ROLES)[number], number> = {
-    headline: 0.055,
-    subtitle: 0.035,
-    body: 0.026,
-    details: 0.03,
-  };
-
-  const fontWeightByRole: Record<(typeof DEFAULT_TEXT_ROLES)[number], number> = {
-    headline: 700,
-    subtitle: 500,
-    body: 400,
-    details: 600,
-  };
-
-  const orderedRegions: Array<PlaceholderDefinition['region']> = ['top', 'center', 'bottom'];
-
-  for (const region of orderedRegions) {
-    const regionalDefinitions = groups.get(region);
-    if (!regionalDefinitions?.length) continue;
-
-    const regionBounds = computeRegionBounds(region, width, height);
-    const regionHeight = Math.max(1, regionBounds.bottom - regionBounds.top);
-
-    regionalDefinitions.forEach((definition, index) => {
-      const slotHeight = regionHeight / regionalDefinitions.length;
-      const boxHeight = Math.round(slotHeight * (definition.role === 'body' ? 0.9 : 0.7));
-      const x = columnLeft;
-      const y = Math.round(regionBounds.top + slotHeight * index + (slotHeight - boxHeight) / 2);
-
-      minTop = Math.min(minTop, y);
-      maxBottom = Math.max(maxBottom, y + boxHeight);
-
-      layers.push({
-        id: `text-${definition.key}-${uuidv4()}`,
-        kind: 'typography',
-        confidence: 1,
-        bounds: { x, y, width: columnWidth, height: boxHeight },
-        payload: {
-          text: definition.text,
-          styleHints: {
-            role: definition.role,
-            fontSize: Math.round(height * fontScaleByRole[definition.role]),
-            fontWeight: fontWeightByRole[definition.role],
-            textAlign: 'center',
-          },
+  const layers: ParsedLayer[] = [
+    {
+      id: `text-main-${uuidv4()}`,
+      kind: 'typography',
+      confidence: 1,
+      bounds: { 
+        x: columnLeft, 
+        y, 
+        width: columnWidth, 
+        height: textHeight 
+      },
+      payload: {
+        text: SINGLE_ELEGANT_TEXT,
+        styleHints: {
+          role: 'headline',
+          fontSize: Math.round(height * 0.045), // Large, elegant size
+          fontWeight: 400, // Regular weight for elegance
+          fontFamily: 'Playfair Display', // Elegant serif font
+          textAlign: 'center',
+          lineHeight: 1.6,
+          color: '#2d2d2d',
         },
-        notes: 'Generated placeholder text layer.',
-      });
-    });
-  }
+      },
+      notes: 'Elegant centered placeholder text - click to edit and customize.',
+    },
+  ];
 
-  const clearRegion =
-    layers.length > 0
-      ? {
-          x: columnLeft,
-          y: Math.max(0, Math.round(minTop - height * 0.02)),
-          width: columnWidth,
-          height: Math.min(height, Math.round(maxBottom - minTop + height * 0.04)),
-        }
-      : null;
-
-  return { layers, clearRegion };
+  // No need to clear region - background is already blank in center
+  return { layers, clearRegion: null };
 }
 
 function buildMetadataSkeleton(payload: ImageProcessingPayload, dimensions?: { width?: number; height?: number }): GeneratedImageProcessingResult {
